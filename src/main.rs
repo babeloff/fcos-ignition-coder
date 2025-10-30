@@ -4,6 +4,9 @@ use ignition_config::Config;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Parser)]
 #[command(name = "fcos-ignition-coder")]
 #[command(about = "Decode and encode Fedora CoreOS Ignition configuration files")]
