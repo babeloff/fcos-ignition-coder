@@ -79,4 +79,7 @@ def main [version?: string] {
     print ""
     print "Conda (future):"
     print $"   conda install -c conda-forge fcos-ignition-coder"
+    print ""
+    print "📚 For complete installation instructions and package details:"
+    print "   See doc/release.adoc - 'GitHub Release Assets' section"
 }
