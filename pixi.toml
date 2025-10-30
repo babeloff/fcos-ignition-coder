@@ -31,6 +31,10 @@ description = "Check release readiness without making changes"
 cmd = "bash scripts/create-wix-placeholders.sh"
 description = "Generate placeholder WiX installer assets (MSI images and icons)"
 
+[tasks.preview-assets]
+cmd = "nu scripts/preview-release-assets.nu"
+description = "Preview what GitHub release assets will be generated"
+
 [dependencies]
 rust = ">=1.75"
 nushell = ">=0.86"
