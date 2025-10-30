@@ -73,7 +73,7 @@ mod tests {
     fn test_decode_data_url_plain_text() {
         let data_url = "data:,Hello%20World";
         let result = decode_data_url(data_url).unwrap();
-        // URL encoding is not decoded, just returned as-is
+        // Plain text data URLs are not URL-decoded; '%20' remains as literal characters
         assert_eq!(result, b"Hello%20World");
     }
 }
