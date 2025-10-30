@@ -1,16 +1,19 @@
 [workspace]
-authors = ["copilot-swe-agent[bot] <198982749+Copilot@users.noreply.github.com>"]
+authors = ["phreed"]
 channels = ["conda-forge"]
 name = "fcos-ignition-coder"
 platforms = ["linux-64"]
 version = "0.1.0"
 description = "Decode and encode Fedora CoreOS Ignition configuration files"
 
-[tasks]
-build = "cargo build --release"
-test = "cargo test"
-run = "cargo run --"
+[tasks.build]
+cmd = "cargo build --release"
+
+[tasks.test]
+cmd = "cargo test"
+
+[tasks.run]
+cmd = "cargo run --"
 
 [dependencies]
 rust = ">=1.75"
-cargo = "*"
