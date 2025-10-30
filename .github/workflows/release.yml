@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,12 +14,13 @@ jobs:
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
       release_id: ${{ steps.create_release.outputs.id }}
+      version: ${{ steps.get_version.outputs.VERSION }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Get version from tag
         id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Create Release
         id: create_release
@@ -28,16 +29,25 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref }}
-          release_name: Release ${{ steps.get_version.outputs.VERSION }}
+          release_name: Release v${{ steps.get_version.outputs.VERSION }}
           body: |
             ## What's Changed
 
             Changes in this release will be updated here.
 
-            ## Installation
+            ## Installation Options
 
-            ### Download Binary
-            Download the appropriate binary for your platform from the assets below.
+            ### Windows
+            - **MSI Installer**: Download `fcos-ignition-coder-${{ steps.get_version.outputs.VERSION }}-x64.msi` for automated installation
+            - **Portable**: Download `fcos-ignition-coder-windows-x86_64.zip`
+
+            ### Linux
+            - **Tarball**: Download `fcos-ignition-coder-${{ steps.get_version.outputs.VERSION }}-linux-x86_64.tar.gz`
+            - **Conda**: `conda install -c conda-forge fcos-ignition-coder` (once published)
+
+            ### macOS
+            - **Intel**: Download `fcos-ignition-coder-macos-x86_64.tar.gz`
+            - **Apple Silicon**: Download `fcos-ignition-coder-macos-aarch64.tar.gz`
 
             ### Using Cargo
             ```bash
@@ -48,14 +58,14 @@ jobs:
             ```bash
             git clone https://github.com/${{ github.repository }}
             cd fcos-ignition-coder
-            git checkout ${{ steps.get_version.outputs.VERSION }}
+            git checkout v${{ steps.get_version.outputs.VERSION }}
             pixi install
             pixi run build
             ```
           draft: false
           prerelease: ${{ contains(steps.get_version.outputs.VERSION, 'alpha') || contains(steps.get_version.outputs.VERSION, 'beta') || contains(steps.get_version.outputs.VERSION, 'rc') }}
 
-  build:
+  build-binaries:
     needs: create-release
     strategy:
       matrix:
@@ -100,22 +110,85 @@ jobs:
           command: test
           args: --release --target ${{ matrix.target }}
 
-      - name: Prepare artifact (Unix)
-        if: matrix.os != 'windows-latest'
+      - name: Prepare Linux tarball
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../fcos-ignition-coder-${{ matrix.name }}.tar.gz fcos-ignition-coder
-          cd ../../..
+          mkdir -p package/usr/local/bin
+          mkdir -p package/usr/local/share/man/man1
+          mkdir -p package/usr/local/share/doc/fcos-ignition-coder
 
-      - name: Prepare artifact (Windows)
+          # Copy binary
+          cp target/${{ matrix.target }}/release/fcos-ignition-coder package/usr/local/bin/
+
+          # Copy documentation
+          cp README.md package/usr/local/share/doc/fcos-ignition-coder/
+          cp LICENSE package/usr/local/share/doc/fcos-ignition-coder/
+          cp doc/release.adoc package/usr/local/share/doc/fcos-ignition-coder/
+
+          # Create a simple man page
+          cat > package/usr/local/share/man/man1/fcos-ignition-coder.1 << 'EOF'
+          .TH FCOS-IGNITION-CODER 1 "$(date +'%B %Y')" "fcos-ignition-coder ${{ needs.create-release.outputs.version }}" "User Commands"
+          .SH NAME
+          fcos-ignition-coder \- Decode and encode Fedora CoreOS Ignition configuration files
+          .SH SYNOPSIS
+          .B fcos-ignition-coder
+          .I COMMAND
+          [OPTIONS]
+          .SH DESCRIPTION
+          fcos-ignition-coder is a command-line utility for working with Fedora CoreOS (FCOS) Ignition configuration files.
+          It provides operations to decode (extract embedded files) and encode (package files back) Ignition configs.
+          .SH COMMANDS
+          .TP
+          .B decode
+          Extract embedded files from an Ignition configuration
+          .TP
+          .B encode
+          Package extracted files back into an Ignition configuration
+          .SH OPTIONS
+          Use fcos-ignition-coder COMMAND --help for command-specific options.
+          .SH AUTHOR
+          Written by phreed.
+          .SH "SEE ALSO"
+          Project repository: https://github.com/${{ github.repository }}
+          EOF
+
+          # Create tarball with proper structure
+          cd package
+          tar czf ../fcos-ignition-coder-${{ needs.create-release.outputs.version }}-linux-x86_64.tar.gz .
+          cd ..
+
+      - name: Prepare artifact (macOS)
+        if: contains(matrix.name, 'macos')
+        run: |
+          mkdir -p package/bin
+          mkdir -p package/share/doc/fcos-ignition-coder
+
+          cp target/${{ matrix.target }}/release/fcos-ignition-coder package/bin/
+          cp README.md LICENSE package/share/doc/fcos-ignition-coder/
+
+          cd package
+          tar czf ../fcos-ignition-coder-${{ matrix.name }}.tar.gz .
+          cd ..
+
+      - name: Prepare artifact (Windows ZIP)
         if: matrix.os == 'windows-latest'
         run: |
-          cd target/${{ matrix.target }}/release
-          7z a ../../../fcos-ignition-coder-${{ matrix.name }}.zip fcos-ignition-coder.exe
-          cd ../../..
+          mkdir package
+          copy target\${{ matrix.target }}\release\fcos-ignition-coder.exe package\
+          copy README.md package\
+          copy LICENSE package\
 
-      - name: Generate checksums (Unix)
-        if: matrix.os != 'windows-latest'
+          cd package
+          7z a ..\fcos-ignition-coder-${{ matrix.name }}.zip *
+          cd ..
+
+      - name: Generate checksums (Linux)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          shasum -a 256 fcos-ignition-coder-${{ needs.create-release.outputs.version }}-linux-x86_64.tar.gz > fcos-ignition-coder-${{ needs.create-release.outputs.version }}-linux-x86_64.tar.gz.sha256
+
+      - name: Generate checksums (macOS)
+        if: contains(matrix.name, 'macos')
         run: |
           shasum -a 256 fcos-ignition-coder-${{ matrix.name }}.tar.gz > fcos-ignition-coder-${{ matrix.name }}.tar.gz.sha256
 
@@ -124,8 +197,30 @@ jobs:
         run: |
           Get-FileHash fcos-ignition-coder-${{ matrix.name }}.zip -Algorithm SHA256 | Select-Object Hash | Format-Table -HideTableHeaders | Out-String -Stream | Where-Object { $_.Trim() -ne "" } | Out-File -FilePath fcos-ignition-coder-${{ matrix.name }}.zip.sha256 -Encoding ASCII
 
-      - name: Upload Release Asset (Unix)
-        if: matrix.os != 'windows-latest'
+      - name: Upload Linux tarball
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./fcos-ignition-coder-${{ needs.create-release.outputs.version }}-linux-x86_64.tar.gz
+          asset_name: fcos-ignition-coder-${{ needs.create-release.outputs.version }}-linux-x86_64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload Linux tarball checksum
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./fcos-ignition-coder-${{ needs.create-release.outputs.version }}-linux-x86_64.tar.gz.sha256
+          asset_name: fcos-ignition-coder-${{ needs.create-release.outputs.version }}-linux-x86_64.tar.gz.sha256
+          asset_content_type: text/plain
+
+      - name: Upload macOS tarball
+        if: contains(matrix.name, 'macos')
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -135,8 +230,8 @@ jobs:
           asset_name: fcos-ignition-coder-${{ matrix.name }}.tar.gz
           asset_content_type: application/gzip
 
-      - name: Upload Release Asset Checksum (Unix)
-        if: matrix.os != 'windows-latest'
+      - name: Upload macOS tarball checksum
+        if: contains(matrix.name, 'macos')
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -146,7 +241,7 @@ jobs:
           asset_name: fcos-ignition-coder-${{ matrix.name }}.tar.gz.sha256
           asset_content_type: text/plain
 
-      - name: Upload Release Asset (Windows)
+      - name: Upload Windows ZIP
         if: matrix.os == 'windows-latest'
         uses: actions/upload-release-asset@v1
         env:
@@ -157,7 +252,7 @@ jobs:
           asset_name: fcos-ignition-coder-${{ matrix.name }}.zip
           asset_content_type: application/zip
 
-      - name: Upload Release Asset Checksum (Windows)
+      - name: Upload Windows ZIP checksum
         if: matrix.os == 'windows-latest'
         uses: actions/upload-release-asset@v1
         env:
@@ -166,4 +261,166 @@ jobs:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
           asset_path: ./fcos-ignition-coder-${{ matrix.name }}.zip.sha256
           asset_name: fcos-ignition-coder-${{ matrix.name }}.zip.sha256
+          asset_content_type: text/plain
+
+  build-msi:
+    needs: create-release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-pc-windows-msvc
+          override: true
+
+      - name: Install cargo-wix
+        run: cargo install cargo-wix
+
+      - name: Build
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Create WiX configuration
+        run: |
+          cargo wix init
+
+      - name: Build MSI
+        run: cargo wix --target x86_64-pc-windows-msvc --output fcos-ignition-coder-${{ needs.create-release.outputs.version }}-x64.msi
+
+      - name: Generate MSI checksum
+        run: |
+          Get-FileHash fcos-ignition-coder-${{ needs.create-release.outputs.version }}-x64.msi -Algorithm SHA256 | Select-Object Hash | Format-Table -HideTableHeaders | Out-String -Stream | Where-Object { $_.Trim() -ne "" } | Out-File -FilePath fcos-ignition-coder-${{ needs.create-release.outputs.version }}-x64.msi.sha256 -Encoding ASCII
+
+      - name: Upload MSI
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./fcos-ignition-coder-${{ needs.create-release.outputs.version }}-x64.msi
+          asset_name: fcos-ignition-coder-${{ needs.create-release.outputs.version }}-x64.msi
+          asset_content_type: application/x-msi
+
+      - name: Upload MSI checksum
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./fcos-ignition-coder-${{ needs.create-release.outputs.version }}-x64.msi.sha256
+          asset_name: fcos-ignition-coder-${{ needs.create-release.outputs.version }}-x64.msi.sha256
+          asset_content_type: text/plain
+
+  build-conda:
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          conda-build-version: "*"
+          activate-environment: ""
+
+      - name: Install conda-build and boa
+        run: |
+          conda install -n base conda-build boa anaconda-client
+
+      - name: Create conda recipe directory
+        run: mkdir -p conda-recipe
+
+      - name: Create conda recipe
+        run: |
+          cat > conda-recipe/meta.yaml << 'EOF'
+          {% set name = "fcos-ignition-coder" %}
+          {% set version = "${{ needs.create-release.outputs.version }}" %}
+
+          package:
+            name: {{ name|lower }}
+            version: {{ version }}
+
+          source:
+            url: https://github.com/${{ github.repository }}/archive/v{{ version }}.tar.gz
+            sha256: PLACEHOLDER_SHA256
+
+          build:
+            number: 0
+            script: |
+              cargo build --release
+              mkdir -p $PREFIX/bin
+              cp target/release/{{ name }} $PREFIX/bin/
+            skip: true  # [win]
+
+          requirements:
+            build:
+              - {{ compiler('rust') }}
+              - cargo-bundle-licenses
+            host:
+              - rust >=1.75
+            run:
+
+          test:
+            commands:
+              - {{ name }} --help
+
+          about:
+            home: https://github.com/${{ github.repository }}
+            license: Apache-2.0
+            license_file: LICENSE
+            summary: Decode and encode Fedora CoreOS Ignition configuration files
+            description: |
+              fcos-ignition-coder is a command-line utility for working with Fedora CoreOS (FCOS)
+              Ignition configuration files. It provides operations to decode (extract embedded files)
+              and encode (package files back) Ignition configs.
+            doc_url: https://github.com/${{ github.repository }}
+            dev_url: https://github.com/${{ github.repository }}
+
+          extra:
+            recipe-maintainers:
+              - phreed
+          EOF
+
+      - name: Get source tarball SHA256
+        run: |
+          wget https://github.com/${{ github.repository }}/archive/v${{ needs.create-release.outputs.version }}.tar.gz
+          SHA256=$(sha256sum v${{ needs.create-release.outputs.version }}.tar.gz | cut -d' ' -f1)
+          sed -i "s/PLACEHOLDER_SHA256/$SHA256/g" conda-recipe/meta.yaml
+
+      - name: Build conda package
+        run: |
+          conda mambabuild conda-recipe --output-folder ./conda-bld
+
+      - name: Find conda package
+        id: find_conda
+        run: |
+          CONDA_PACKAGE=$(find ./conda-bld -name "fcos-ignition-coder-*.tar.bz2" | head -n 1)
+          echo "CONDA_PACKAGE=$CONDA_PACKAGE" >> $GITHUB_OUTPUT
+          echo "CONDA_BASENAME=$(basename $CONDA_PACKAGE)" >> $GITHUB_OUTPUT
+
+      - name: Generate conda package checksum
+        run: |
+          sha256sum "${{ steps.find_conda.outputs.CONDA_PACKAGE }}" | cut -d' ' -f1 > "${{ steps.find_conda.outputs.CONDA_PACKAGE }}.sha256"
+
+      - name: Upload conda package
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ${{ steps.find_conda.outputs.CONDA_PACKAGE }}
+          asset_name: ${{ steps.find_conda.outputs.CONDA_BASENAME }}
+          asset_content_type: application/x-tar
+
+      - name: Upload conda package checksum
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ${{ steps.find_conda.outputs.CONDA_PACKAGE }}.sha256
+          asset_name: ${{ steps.find_conda.outputs.CONDA_BASENAME }}.sha256
           asset_content_type: text/plain

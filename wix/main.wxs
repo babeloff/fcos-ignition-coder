@@ -1,0 +1,180 @@
+<?xml version='1.0' encoding='windows-1252'?>
+<!--
+  Copyright (C) 2017 Christopher R. Field.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+
+<!--
+  The "cargo wix" subcommand provides a variety of predefined variables available
+  for customization of this template. The values for each variable are set at
+  installer creation time. The following variables are available:
+
+  TargetTriple      = The rustc target triple name.
+  TargetEnv         = The rustc target environment. This is typically either
+                      "msvc" or "gnu" depending on the toolchain downloaded and
+                      installed.
+  TargetFamily      = The rustc target family. This is typically "windows".
+  TargetOs          = The rustc target operating system. This is typically
+                      "windows".
+  CargoTargetBinDir = The complete path to the binary (exe). The default would
+                      be "target\release\<BINARY_NAME>.exe" where
+                      "<BINARY_NAME>" is replaced with the name of the binary.
+  CargoTargetDir    = The path to the directory for the build artifacts, i.e.
+                      "target".
+  CargoManifestDir  = The path to the directory containing the Cargo.toml file
+                      for the package.
+  Version           = The version for the installer. The default is the
+                      "version" field from the package's manifest (Cargo.toml).
+  ProductName       = The product name. The default is the "name" field from
+                      the package's manifest (Cargo.toml).
+  Description       = The description. The default is the "description" field
+                      from the package's manifest (Cargo.toml).
+  Homepage          = The homepage. The default is the "homepage" field from the
+                      package's manifest (Cargo.toml).
+  Manufacturer      = The manufacturer. The default is the first author listed
+                      in the "authors" field from the package's manifest
+                      (Cargo.toml).
+  License           = The license. The default is the "license" field from the
+                      package's manifest (Cargo.toml).
+  LicenseUrl        = The license URL. The default is the "license-file" field
+                      from the package's manifest (Cargo.toml).
+  PlatformArch      = The platform architecture (x86, x64, or arm64).
+  HelpUrl           = The help URL. The default is the "documentation" URL from
+                      the package's manifest (Cargo.toml) if the "homepage" is
+                      not the "documentation" URL.
+  UpdateUrl         = The update URL. The default is the "repository" field from
+                      the package's manifest (Cargo.toml).
+  ManufacturerUrl   = The manufacturer URL. The default is the "homepage" field
+                      from the package's manifest (Cargo.toml).
+-->
+
+<Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'>
+
+    <Product
+        Id='*'
+        Name='fcos-ignition-coder'
+        UpgradeCode='{{F8B2C3D4-E5F6-7890-1234-56789ABCDEF0}}'
+        Manufacturer='phreed'
+        Language='1033'
+        Codepage='1252'
+        Version='$(var.Version)'>
+
+        <Package Id='*'
+            Keywords='Installer'
+            Description='Fedora CoreOS Ignition configuration file decoder/encoder'
+            Manufacturer='phreed'
+            InstallerVersion='450'
+            Languages='1033'
+            Compressed='yes'
+            InstallScope='perMachine'
+            SummaryCodepage='1252'
+            Platform='$(var.PlatformArch)'/>
+
+        <MajorUpgrade
+            Schedule='afterInstallInitialize'
+            DowngradeErrorMessage='A newer version of [ProductName] is already installed. Setup will now exit.'/>
+
+        <Media Id='1' Cabinet='media1.cab' EmbedCab='yes' DiskPrompt='CD-ROM #1'/>
+        <Property Id='DiskPrompt' Value='fcos-ignition-coder Installation'/>
+
+        <Directory Id='TARGETDIR' Name='SourceDir'>
+            <Directory Id='$(var.PlatformProgramFilesFolder)'>
+                <Directory Id='APPLICATIONFOLDER' Name='fcos-ignition-coder'>
+                    <Component Id='Path' Guid='*' Win64='$(var.Win64)' KeyPath='yes'>
+                        <Environment
+                            Id='PATH'
+                            Name='PATH'
+                            Value='[APPLICATIONFOLDER]'
+                            Permanent='no'
+                            Part='last'
+                            Action='set'
+                            System='yes'/>
+                    </Component>
+
+                    <Component Id='binary0' Guid='*' Win64='$(var.Win64)'>
+                        <File
+                            Id='exe0'
+                            Name='fcos-ignition-coder.exe'
+                            DiskId='1'
+                            Source='$(var.CargoTargetBinDir)'
+                            KeyPath='yes'/>
+                    </Component>
+
+                    <Component Id='License' Guid='*' Win64='$(var.Win64)'>
+                        <File
+                            Id='LicenseFile'
+                            Name='LICENSE'
+                            DiskId='1'
+                            Source='$(var.CargoManifestDir)\LICENSE'
+                            KeyPath='yes'/>
+                    </Component>
+
+                    <Component Id='ReadMe' Guid='*' Win64='$(var.Win64)'>
+                        <File
+                            Id='ReadMeFile'
+                            Name='README.md'
+                            DiskId='1'
+                            Source='$(var.CargoManifestDir)\README.md'
+                            KeyPath='yes'/>
+                    </Component>
+                </Directory>
+            </Directory>
+        </Directory>
+
+        <Feature
+            Id='Binaries'
+            Title='Application'
+            Description='Installs all binaries and the license.'
+            Level='1'
+            ConfigurableDirectory='APPLICATIONFOLDER'
+            AllowAdvertise='no'
+            Display='expand'
+            Absent='disallow'>
+
+            <ComponentRef Id='binary0'/>
+            <ComponentRef Id='License'/>
+            <ComponentRef Id='ReadMe'/>
+
+            <Feature
+                Id='Environment'
+                Title='PATH Environment Variable'
+                Description='Add the install location of the [ProductName] executable to the PATH system environment variable. This allows the [ProductName] executable to be called from any location.'
+                Level='1'
+                Absent='allow'>
+                <ComponentRef Id='Path'/>
+            </Feature>
+        </Feature>
+
+        <SetProperty Id='ARPINSTALLLOCATION' Value='[APPLICATIONFOLDER]' After='CostFinalize'/>
+
+        <Property Id='ARPHELPLINK' Value='https://github.com/phreed/fcos-ignition-coder'/>
+        <Property Id='ARPURLINFOABOUT' Value='https://github.com/phreed/fcos-ignition-coder'/>
+        <Property Id='ARPURLUPDATEINFO' Value='https://github.com/phreed/fcos-ignition-coder/releases'/>
+        <Property Id='ARPNOREPAIR' Value='yes' Secure='yes'/>
+        <Property Id='ARPNOMODIFY' Value='yes' Secure='yes'/>
+
+        <Icon Id='ProductICO' SourceFile='$(var.CargoManifestDir)\wix\fcos-ignition-coder.ico'/>
+        <Property Id='ARPPRODUCTICON' Value='ProductICO'/>
+
+        <Property Id='ApplicationFolderName' Value='fcos-ignition-coder'/>
+        <Property Id='WixAppFolder' Value='WixPerMachineFolder'/>
+
+        <UIRef Id='WixUI_FeatureTree'/>
+        <WixVariable Id='WixUILicenseRtf' Value='$(var.CargoManifestDir)\wix\License.rtf'/>
+        <WixVariable Id='WixUIDialogBmp' Value='$(var.CargoManifestDir)\wix\Dialog.bmp'/>
+        <WixVariable Id='WixUIBannerBmp' Value='$(var.CargoManifestDir)\wix\Banner.bmp'/>
+
+    </Product>
+
+</Wix>
