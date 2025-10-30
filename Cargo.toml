@@ -1,6 +1,6 @@
 [package]
 name = "fcos-ignition-coder"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Decode and encode Fedora CoreOS Ignition configuration files"
 
