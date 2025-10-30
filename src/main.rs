@@ -25,6 +25,10 @@ enum Commands {
 
         /// The directory to place the decoded files in
         target_dir: PathBuf,
+
+        /// Remove target directory if it exists before processing
+        #[arg(long)]
+        replace: bool,
     },
     /// Encode extracted files back into an Ignition file
     #[command(aliases = ["encode", "a", "prod"])]
@@ -42,6 +46,10 @@ enum Commands {
         /// Suppress fields that have default values
         #[arg(long)]
         default: bool,
+
+        /// Remove target file if it exists before processing
+        #[arg(long)]
+        replace: bool,
     },
 }
 
@@ -52,23 +60,25 @@ fn main() -> Result<()> {
         Commands::Disassemble {
             ignition_file,
             target_dir,
+            replace,
         } => {
-            disassemble_ignition(&ignition_file, &target_dir)?;
+            disassemble_ignition(&ignition_file, &target_dir, replace)?;
         }
         Commands::Assemble {
             target_file,
             ignition_dir,
             compact,
             default,
+            replace,
         } => {
-            assemble_ignition(&target_file, &ignition_dir, compact, default)?;
+            assemble_ignition(&target_file, &ignition_dir, compact, default, replace)?;
         }
     }
 
     Ok(())
 }
 
-fn disassemble_ignition(input_path: &Path, output_dir: &Path) -> Result<()> {
+fn disassemble_ignition(input_path: &Path, output_dir: &Path, replace: bool) -> Result<()> {
     // Read the input Ignition file
     let content = fs::read_to_string(input_path)
         .with_context(|| format!("Failed to read input file: {}", input_path.display()))?;
@@ -80,6 +90,23 @@ fn disassemble_ignition(input_path: &Path, output_dir: &Path) -> Result<()> {
     // Print warnings if any
     for warning in warnings {
         eprintln!("Warning: {}", warning);
+    }
+
+    // Handle target directory
+    if output_dir.exists() {
+        if replace {
+            fs::remove_dir_all(output_dir).with_context(|| {
+                format!(
+                    "Failed to remove existing target directory: {}",
+                    output_dir.display()
+                )
+            })?;
+        } else {
+            anyhow::bail!(
+                "Target directory already exists: {}. Use --replace to overwrite.",
+                output_dir.display()
+            );
+        }
     }
 
     // Create output directory
@@ -130,24 +157,38 @@ where
 
     let mut file_counter = 0;
 
-    find_and_replace_source(&mut json_value, "", &mut |path, source_str| {
-        if source_str.starts_with("data:") {
-            let url = data_url::DataUrl::process(source_str)
-                .map_err(|e| anyhow::anyhow!("Failed to parse data URL: {:?}", e))?;
-            let (decoded_content, _) = url.decode_to_vec().unwrap();
-            let media_type = url.mime_type().to_string();
+    find_and_replace_source(
+        &mut json_value,
+        "",
+        &mut |path, source_str, is_array, array_index| {
+            if source_str.starts_with("data:") {
+                let url = data_url::DataUrl::process(source_str)
+                    .map_err(|e| anyhow::anyhow!("Failed to parse data URL: {:?}", e))?;
+                let (decoded_content, _) = url.decode_to_vec().unwrap();
+                let media_type = url.mime_type().to_string();
 
-            let relative_path = path.trim_start_matches("/");
-            let out_path = output_dir.join(relative_path);
-            fs::create_dir_all(out_path.parent().unwrap())?;
-            fs::write(&out_path, decoded_content)?;
+                let relative_path = path.trim_start_matches("/");
+                let out_path = if is_array {
+                    // Create directory and indexed file
+                    let dir_path = output_dir.join(relative_path);
+                    fs::create_dir_all(&dir_path)?;
+                    dir_path.join(array_index.to_string())
+                } else {
+                    // Single file
+                    let file_path = output_dir.join(relative_path);
+                    fs::create_dir_all(file_path.parent().unwrap())?;
+                    file_path
+                };
 
-            file_counter += 1;
-            Ok(format!("data:{};base64-placeholder,", media_type))
-        } else {
-            Ok(source_str.to_string())
-        }
-    })?;
+                fs::write(&out_path, decoded_content)?;
+
+                file_counter += 1;
+                Ok(format!("data:{};base64-placeholder,", media_type))
+            } else {
+                Ok(source_str.to_string())
+            }
+        },
+    )?;
 
     let pretty_json = serde_json::to_string_pretty(&json_value)
         .with_context(|| "Failed to serialize modified config")?;
@@ -157,7 +198,7 @@ where
 
 fn find_and_replace_source<F>(value: &mut serde_json::Value, path: &str, func: &mut F) -> Result<()>
 where
-    F: FnMut(&str, &str) -> Result<String>,
+    F: FnMut(&str, &str, bool, usize) -> Result<String>,
 {
     match value {
         serde_json::Value::Object(map) => {
@@ -166,10 +207,57 @@ where
                 new_path = p.to_string();
             }
 
+            // Check if this object has both a path and array fields with sources
+            let has_path = map.contains_key("path");
+            let mut found_array_with_sources = false;
+
+            if has_path {
+                // Look for array fields that contain objects with sources
+                for (_key, val) in map.iter() {
+                    if let serde_json::Value::Array(arr) = val {
+                        // Check if any element in the array has a source
+                        if arr.iter().any(|item| {
+                            if let serde_json::Value::Object(obj) = item {
+                                obj.contains_key("source")
+                            } else {
+                                false
+                            }
+                        }) {
+                            found_array_with_sources = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
             for (key, val) in map.iter_mut() {
                 if key == "source" {
                     if let Some(s) = val.as_str() {
-                        *val = serde_json::Value::String(func(&new_path, s)?);
+                        *val = serde_json::Value::String(func(&new_path, s, false, 0)?);
+                    }
+                } else if found_array_with_sources && key != "path" {
+                    // This might be an array field with sources
+                    if let serde_json::Value::Array(arr) = val {
+                        // Check if this array contains objects with sources
+                        let has_sources = arr.iter().any(|item| {
+                            if let serde_json::Value::Object(obj) = item {
+                                obj.contains_key("source")
+                            } else {
+                                false
+                            }
+                        });
+
+                        if has_sources {
+                            // Process as array of sources
+                            for (index, item) in arr.iter_mut().enumerate() {
+                                process_array_item_sources(item, &new_path, index, func)?;
+                            }
+                        } else {
+                            // Regular array processing
+                            find_and_replace_source(val, &new_path, func)?;
+                        }
+                    } else {
+                        find_and_replace_source(val, &new_path, func)?;
                     }
                 } else {
                     find_and_replace_source(val, &new_path, func)?;
@@ -179,6 +267,61 @@ where
         serde_json::Value::Array(arr) => {
             for val in arr.iter_mut() {
                 find_and_replace_source(val, path, func)?;
+            }
+        }
+        _ => (),
+    }
+    Ok(())
+}
+
+fn process_array_item_sources<F>(
+    item: &mut serde_json::Value,
+    path: &str,
+    index: usize,
+    func: &mut F,
+) -> Result<()>
+where
+    F: FnMut(&str, &str, bool, usize) -> Result<String>,
+{
+    if let serde_json::Value::Object(map) = item {
+        for (key, val) in map.iter_mut() {
+            if key == "source" {
+                if let Some(s) = val.as_str() {
+                    *val = serde_json::Value::String(func(path, s, true, index)?);
+                }
+            } else {
+                // Recursively process nested structures
+                process_nested_sources(val, path, index, func)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn process_nested_sources<F>(
+    value: &mut serde_json::Value,
+    path: &str,
+    index: usize,
+    func: &mut F,
+) -> Result<()>
+where
+    F: FnMut(&str, &str, bool, usize) -> Result<String>,
+{
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, val) in map.iter_mut() {
+                if key == "source" {
+                    if let Some(s) = val.as_str() {
+                        *val = serde_json::Value::String(func(path, s, true, index)?);
+                    }
+                } else {
+                    process_nested_sources(val, path, index, func)?;
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for val in arr.iter_mut() {
+                process_nested_sources(val, path, index, func)?;
             }
         }
         _ => (),
@@ -220,7 +363,25 @@ fn assemble_ignition(
     ignition_dir: &Path,
     compact: bool,
     default: bool,
+    replace: bool,
 ) -> Result<()> {
+    // Handle target file
+    if target_file.exists() {
+        if replace {
+            fs::remove_file(target_file).with_context(|| {
+                format!(
+                    "Failed to remove existing target file: {}",
+                    target_file.display()
+                )
+            })?;
+        } else {
+            anyhow::bail!(
+                "Target file already exists: {}. Use --replace to overwrite.",
+                target_file.display()
+            );
+        }
+    }
+
     // Find the .ign file in the ignition_dir
     let mut ignition_file = None;
     for entry in fs::read_dir(ignition_dir)? {
@@ -301,22 +462,32 @@ where
 
     let mut file_counter = 0;
 
-    find_and_replace_source(&mut json_value, "", &mut |path, source_str| {
-        if source_str.contains(";base64-placeholder,") {
-            let media_type = source_str
-                .trim_start_matches("data:")
-                .trim_end_matches(";base64-placeholder,");
-            let relative_path = path.trim_start_matches("/");
-            let in_path = files_dir.join(relative_path);
-            let file_content = fs::read(&in_path)?;
-            use base64::Engine;
-            let encoded = base64::engine::general_purpose::STANDARD.encode(&file_content);
-            file_counter += 1;
-            Ok(format!("data:{};base64,{}", media_type, encoded))
-        } else {
-            Ok(source_str.to_string())
-        }
-    })?;
+    find_and_replace_source(
+        &mut json_value,
+        "",
+        &mut |path, source_str, is_array, array_index| {
+            if source_str.contains(";base64-placeholder,") {
+                let media_type = source_str
+                    .trim_start_matches("data:")
+                    .trim_end_matches(";base64-placeholder,");
+                let relative_path = path.trim_start_matches("/");
+                let in_path = if is_array {
+                    // Read from indexed file in directory
+                    files_dir.join(relative_path).join(array_index.to_string())
+                } else {
+                    // Read from single file
+                    files_dir.join(relative_path)
+                };
+                let file_content = fs::read(&in_path)?;
+                use base64::Engine;
+                let encoded = base64::engine::general_purpose::STANDARD.encode(&file_content);
+                file_counter += 1;
+                Ok(format!("data:{};base64,{}", media_type, encoded))
+            } else {
+                Ok(source_str.to_string())
+            }
+        },
+    )?;
 
     let pretty_json = serde_json::to_string_pretty(&json_value)
         .with_context(|| "Failed to serialize encoded config")?;
