@@ -11,8 +11,11 @@ echo "🎨 Creating placeholder WiX installer assets..."
 mkdir -p wix
 
 # Create a minimal ICO file using ImageMagick (if available) or a placeholder
-if command -v convert &> /dev/null; then
+if command -v magick &> /dev/null; then
     echo "  📐 Using ImageMagick to create icon..."
+    magick -size 32x32 canvas:blue -fill white -draw "rectangle 0,0 31,1" -draw "rectangle 0,0 1,31" -draw "rectangle 30,0 31,31" -draw "rectangle 0,30 31,31" wix/fcos-ignition-coder.ico
+elif command -v convert &> /dev/null; then
+    echo "  📐 Using ImageMagick (legacy) to create icon..."
     convert -size 32x32 xc:blue -fill white -draw "rectangle 0,0 31,1" -draw "rectangle 0,0 1,31" -draw "rectangle 30,0 31,31" -draw "rectangle 0,30 31,31" wix/fcos-ignition-coder.ico
 else
     echo "  📄 Creating placeholder icon (install ImageMagick for better quality)..."
@@ -21,8 +24,11 @@ else
 fi
 
 # Create banner BMP (493x58)
-if command -v convert &> /dev/null; then
+if command -v magick &> /dev/null; then
     echo "  📐 Creating banner image..."
+    magick -size 493x58 gradient:blue-white wix/Banner.bmp
+elif command -v convert &> /dev/null; then
+    echo "  📐 Creating banner image (legacy)..."
     convert -size 493x58 gradient:blue-white wix/Banner.bmp
 else
     echo "  📄 Creating placeholder banner..."
@@ -72,8 +78,11 @@ with open('wix/Banner.bmp', 'wb') as f:
 fi
 
 # Create dialog BMP (493x312)
-if command -v convert &> /dev/null; then
+if command -v magick &> /dev/null; then
     echo "  📐 Creating dialog background..."
+    magick -size 493x312 canvas:"#F0F0FF" wix/Dialog.bmp
+elif command -v convert &> /dev/null; then
+    echo "  📐 Creating dialog background (legacy)..."
     convert -size 493x312 -background "#F0F0FF" -fill "#E0E0FF" -draw "rectangle 0,0 493,50" wix/Dialog.bmp
 else
     echo "  📄 Creating placeholder dialog background..."
