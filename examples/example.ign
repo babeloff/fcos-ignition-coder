@@ -15,7 +15,7 @@
         "path": "/etc/motd",
         "mode": 420,
         "contents": {
-          "source": "data:;base64,V2VsY29tZSB0byBGZWRvcmEgQ29yZU9TIQoKVGhpcyBzeXN0ZW0gaXMgbWFuYWdlZCBieSBJZ25pdGlvbi4KRm9yIG1vcmUgaW5mb3JtYXRpb24sIHZpc2l0OiBodHRwczovL2NvcmVvcy5naXRodWIuaW8vaWduaXRpb24vCg=="
+          "source": "data:text/plain;base64,V2VsY29tZSB0byBGZWRvcmEgQ29yZU9TIQoKVGhpcyBzeXN0ZW0gaXMgbWFuYWdlZCBieSBJZ25pdGlvbi4KRm9yIG1vcmUgaW5mb3JtYXRpb24sIHZpc2l0OiBodHRwczovL2NvcmVvcy5naXRodWIuaW8vaWduaXRpb24vCg=="
         }
       },
       {

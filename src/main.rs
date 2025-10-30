@@ -7,6 +7,9 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod tests_dyn;
+
 #[derive(Parser)]
 #[command(name = "fcos-ignition-coder")]
 #[command(about = "Decode and encode Fedora CoreOS Ignition configuration files")]
