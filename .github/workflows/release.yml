@@ -43,7 +43,6 @@ jobs:
 
             ### Linux
             - **Tarball**: Download `fcos-ignition-coder-${{ steps.get_version.outputs.VERSION }}-linux-x86_64.tar.gz`
-            - **Conda**: `conda install -c conda-forge fcos-ignition-coder` (once published)
 
             ### macOS
             - **Intel**: Download `fcos-ignition-coder-macos-x86_64.tar.gz`
@@ -284,7 +283,7 @@ jobs:
 
       - name: Create WiX configuration
         run: |
-          cargo wix init
+          cargo wix init --force
 
       - name: Build MSI
         run: cargo wix --target x86_64-pc-windows-msvc --output fcos-ignition-coder-${{ needs.create-release.outputs.version }}-x64.msi
@@ -311,116 +310,4 @@ jobs:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
           asset_path: ./fcos-ignition-coder-${{ needs.create-release.outputs.version }}-x64.msi.sha256
           asset_name: fcos-ignition-coder-${{ needs.create-release.outputs.version }}-x64.msi.sha256
-          asset_content_type: text/plain
-
-  build-conda:
-    needs: create-release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Miniconda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          auto-update-conda: true
-          conda-build-version: "*"
-          activate-environment: ""
-
-      - name: Install conda-build and boa
-        run: |
-          conda install -n base conda-build boa anaconda-client
-
-      - name: Create conda recipe directory
-        run: mkdir -p conda-recipe
-
-      - name: Create conda recipe
-        run: |
-          cat > conda-recipe/meta.yaml << 'EOF'
-          {% set name = "fcos-ignition-coder" %}
-          {% set version = "${{ needs.create-release.outputs.version }}" %}
-
-          package:
-            name: {{ name|lower }}
-            version: {{ version }}
-
-          source:
-            url: https://github.com/${{ github.repository }}/archive/v{{ version }}.tar.gz
-            sha256: PLACEHOLDER_SHA256
-
-          build:
-            number: 0
-            script: |
-              cargo build --release
-              mkdir -p $PREFIX/bin
-              cp target/release/{{ name }} $PREFIX/bin/
-            skip: true  # [win]
-
-          requirements:
-            build:
-              - {{ compiler('rust') }}
-              - cargo-bundle-licenses
-            host:
-              - rust >=1.75
-            run:
-
-          test:
-            commands:
-              - {{ name }} --help
-
-          about:
-            home: https://github.com/${{ github.repository }}
-            license: Apache-2.0
-            license_file: LICENSE
-            summary: Decode and encode Fedora CoreOS Ignition configuration files
-            description: |
-              fcos-ignition-coder is a command-line utility for working with Fedora CoreOS (FCOS)
-              Ignition configuration files. It provides operations to decode (extract embedded files)
-              and encode (package files back) Ignition configs.
-            doc_url: https://github.com/${{ github.repository }}
-            dev_url: https://github.com/${{ github.repository }}
-
-          extra:
-            recipe-maintainers:
-              - phreed
-          EOF
-
-      - name: Get source tarball SHA256
-        run: |
-          wget https://github.com/${{ github.repository }}/archive/v${{ needs.create-release.outputs.version }}.tar.gz
-          SHA256=$(sha256sum v${{ needs.create-release.outputs.version }}.tar.gz | cut -d' ' -f1)
-          sed -i "s/PLACEHOLDER_SHA256/$SHA256/g" conda-recipe/meta.yaml
-
-      - name: Build conda package
-        run: |
-          conda mambabuild conda-recipe --output-folder ./conda-bld
-
-      - name: Find conda package
-        id: find_conda
-        run: |
-          CONDA_PACKAGE=$(find ./conda-bld -name "fcos-ignition-coder-*.tar.bz2" | head -n 1)
-          echo "CONDA_PACKAGE=$CONDA_PACKAGE" >> $GITHUB_OUTPUT
-          echo "CONDA_BASENAME=$(basename $CONDA_PACKAGE)" >> $GITHUB_OUTPUT
-
-      - name: Generate conda package checksum
-        run: |
-          sha256sum "${{ steps.find_conda.outputs.CONDA_PACKAGE }}" | cut -d' ' -f1 > "${{ steps.find_conda.outputs.CONDA_PACKAGE }}.sha256"
-
-      - name: Upload conda package
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ steps.find_conda.outputs.CONDA_PACKAGE }}
-          asset_name: ${{ steps.find_conda.outputs.CONDA_BASENAME }}
-          asset_content_type: application/x-tar
-
-      - name: Upload conda package checksum
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ steps.find_conda.outputs.CONDA_PACKAGE }}.sha256
-          asset_name: ${{ steps.find_conda.outputs.CONDA_BASENAME }}.sha256
           asset_content_type: text/plain

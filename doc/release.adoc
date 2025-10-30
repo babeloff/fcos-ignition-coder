@@ -8,7 +8,7 @@ This document describes how to create GitHub releases for the `fcos-ignition-cod
 a Rust-based CLI tool for encoding and decoding Fedora CoreOS Ignition configuration files.
 
 The release system automatically builds and distributes multiple package formats
-including MSI installers, system-ready tarballs, and conda packages across Linux, macOS, and Windows platforms.
+including MSI installers and system-ready tarballs across Linux, macOS, and Windows platforms.
 
 == Prerequisites
 
@@ -70,7 +70,6 @@ git push origin v0.2.0
    * Runs the complete test suite
    * Creates GitHub release with assets
    * Generates MSI installer
-   * Builds conda package
 
 == GitHub Release Assets
 
@@ -97,10 +96,6 @@ Each release automatically generates **12 assets**:
 * `fcos-ignition-coder-windows-x86_64.zip.sha256`
 * `fcos-ignition-coder-<version>-x64.msi` (Installer with PATH integration)
 * `fcos-ignition-coder-<version>-x64.msi.sha256`
-
-=== Conda Package (2 assets)
-* `fcos-ignition-coder-<version>-*.tar.bz2` (Cross-platform package)
-* `fcos-ignition-coder-<version>-*.tar.bz2.sha256`
 
 === Asset Verification
 
@@ -143,12 +138,6 @@ sudo tar -xzf fcos-ignition-coder-<version>-linux-x86_64.tar.gz -C /
 # Verify installation
 fcos-ignition-coder --help
 man fcos-ignition-coder
-----
-
-**Conda (Future):**
-[source,bash]
-----
-conda install -c conda-forge fcos-ignition-coder
 ----
 
 === macOS
@@ -197,7 +186,7 @@ Use this template when editing GitHub releases:
 
 ## Installation
 
-See installation options above for Windows MSI, Linux tarball, macOS, conda, and cargo methods.
+See installation options above for Windows MSI, Linux tarball, macOS, and cargo methods.
 
 Full documentation: https://github.com/USERNAME/fcos-ignition-coder
 ----
@@ -222,10 +211,6 @@ usr/local/
 * Uninstaller support
 * Custom branding (icon, banner, dialog)
 * Silent installation support (`/quiet`)
-
-=== Conda Package Features
-* Cross-platform compatibility
-* Dependency management
 * Environment isolation
 * License and source metadata
 * Update capability via package manager
@@ -275,7 +260,6 @@ The release workflow consists of three parallel jobs:
 
 1. **`build-binaries`**: Platform-specific binaries and tarballs
 2. **`build-msi`**: Windows MSI installer using WiX toolset
-3. **`build-conda`**: Cross-platform conda package
 
 All jobs upload artifacts to the same GitHub release.
 
@@ -285,11 +269,6 @@ All jobs upload artifacts to the same GitHub release.
 * Replace WiX placeholder assets with branded images
 * Add code signing certificate for Windows SmartScreen
 * Test across Windows versions
-
-=== Conda Distribution
-* Submit recipe to conda-forge feedstock
-* Set up automated package updates
-* Configure proper metadata
 
 === Distribution
 * Consider CDN for faster downloads

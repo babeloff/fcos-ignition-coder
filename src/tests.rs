@@ -37,9 +37,8 @@ mod tests {
         assert_eq!(decoded_content, "test content");
 
         let decoded_ign_content = fs::read_to_string(decoded_dir.join("decoded.ign")).unwrap();
-        assert!(
-            decoded_ign_content.contains("data:text/plain;charset=US-ASCII;base64-placeholder,")
-        );
+        assert!(decoded_ign_content
+            .contains("data:text/plain;charset=US-ASCII;base64-placeholder,etc/test"));
     }
 
     #[test]
@@ -59,7 +58,7 @@ mod tests {
         "path": "/etc/test",
         "mode": 420,
         "contents": {
-          "source": "data:text/plain;charset=US-ASCII;base64-placeholder,"
+          "source": "data:text/plain;charset=US-ASCII;base64-placeholder,etc/test"
         }
       }
     ]
@@ -307,7 +306,7 @@ mod tests {
         "path": "/etc/test",
         "mode": 420,
         "contents": {
-          "source": "data:text/plain;charset=US-ASCII;base64-placeholder,"
+          "source": "data:text/plain;charset=US-ASCII;base64-placeholder,etc/test"
         }
       }
     ]

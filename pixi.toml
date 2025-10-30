@@ -3,7 +3,7 @@ authors = ["phreed"]
 channels = ["conda-forge"]
 name = "fcos-ignition-coder"
 platforms = ["linux-64"]
-version = "0.2.2"
+version = "0.2.3"
 description = "Decode and encode Fedora CoreOS Ignition configuration files"
 
 [tasks.build]
@@ -34,6 +34,11 @@ description = "Generate placeholder WiX installer assets (MSI images and icons)"
 [tasks.preview-assets]
 cmd = "nu scripts/preview-release-assets.nu"
 description = "Preview what GitHub release assets will be generated"
+
+[tasks.install-linux64]
+cmd = "mkdir -p ~/.local/bin && cp target/release/fcos-ignition-coder ~/.local/bin/"
+description = "Install the binary to ~/.local/bin/"
+depends-on = ["build"]
 
 [dependencies]
 rust = ">=1.75"

@@ -157,38 +157,7 @@ where
 
     let mut file_counter = 0;
 
-    find_and_replace_source(
-        &mut json_value,
-        "",
-        &mut |path, source_str, is_array, array_index| {
-            if source_str.starts_with("data:") {
-                let url = data_url::DataUrl::process(source_str)
-                    .map_err(|e| anyhow::anyhow!("Failed to parse data URL: {:?}", e))?;
-                let (decoded_content, _) = url.decode_to_vec().unwrap();
-                let media_type = url.mime_type().to_string();
-
-                let relative_path = path.trim_start_matches("/");
-                let out_path = if is_array {
-                    // Create directory and indexed file
-                    let dir_path = output_dir.join(relative_path);
-                    fs::create_dir_all(&dir_path)?;
-                    dir_path.join(array_index.to_string())
-                } else {
-                    // Single file
-                    let file_path = output_dir.join(relative_path);
-                    fs::create_dir_all(file_path.parent().unwrap())?;
-                    file_path
-                };
-
-                fs::write(&out_path, decoded_content)?;
-
-                file_counter += 1;
-                Ok(format!("data:{};base64-placeholder,", media_type))
-            } else {
-                Ok(source_str.to_string())
-            }
-        },
-    )?;
+    find_and_replace_source_with_path_update(&mut json_value, "", output_dir, &mut file_counter)?;
 
     let pretty_json = serde_json::to_string_pretty(&json_value)
         .with_context(|| "Failed to serialize modified config")?;
@@ -465,19 +434,22 @@ where
     find_and_replace_source(
         &mut json_value,
         "",
-        &mut |path, source_str, is_array, array_index| {
+        &mut |_path, source_str, _is_array, _array_index| {
             if source_str.contains(";base64-placeholder,") {
-                let media_type = source_str
-                    .trim_start_matches("data:")
-                    .trim_end_matches(";base64-placeholder,");
-                let relative_path = path.trim_start_matches("/");
-                let in_path = if is_array {
-                    // Read from indexed file in directory
-                    files_dir.join(relative_path).join(array_index.to_string())
+                // Extract media type and file path from the placeholder
+                let after_data = source_str.trim_start_matches("data:");
+                let parts: Vec<&str> = after_data.splitn(2, ";base64-placeholder,").collect();
+                let media_type = parts[0];
+                let file_path = if parts.len() > 1 && !parts[1].is_empty() {
+                    parts[1]
                 } else {
-                    // Read from single file
-                    files_dir.join(relative_path)
+                    return Err(anyhow::anyhow!(
+                        "Invalid placeholder format: missing file path"
+                    ));
                 };
+
+                let in_path = files_dir.join(file_path);
+
                 let file_content = fs::read(&in_path)?;
                 use base64::Engine;
                 let encoded = base64::engine::general_purpose::STANDARD.encode(&file_content);
@@ -493,4 +465,309 @@ where
         .with_context(|| "Failed to serialize encoded config")?;
 
     Ok((pretty_json, file_counter))
+}
+
+fn find_and_replace_source_with_path_update(
+    value: &mut serde_json::Value,
+    path: &str,
+    output_dir: &Path,
+    file_counter: &mut usize,
+) -> Result<()> {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut new_path = path.to_string();
+            if let Some(p) = map.get("path").and_then(|v| v.as_str()) {
+                new_path = p.to_string();
+            }
+
+            // Check if this object has both a path and array fields with sources
+            let has_path = map.contains_key("path");
+            let mut found_array_with_sources = false;
+
+            if has_path {
+                // Look for array fields that contain objects with sources
+                for (_key, val) in map.iter() {
+                    if let serde_json::Value::Array(arr) = val {
+                        // Check if any element in the array has a source
+                        if arr.iter().any(|item| {
+                            if let serde_json::Value::Object(obj) = item {
+                                obj.contains_key("source")
+                            } else {
+                                false
+                            }
+                        }) {
+                            found_array_with_sources = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            for (key, val) in map.iter_mut() {
+                if key == "source" {
+                    if let Some(source_str) = val.as_str() {
+                        if source_str.starts_with("data:") {
+                            let url = data_url::DataUrl::process(source_str).map_err(|e| {
+                                anyhow::anyhow!("Failed to parse data URL: {:?}", e)
+                            })?;
+                            let (decoded_content, _) = url.decode_to_vec().unwrap();
+                            let media_type = url.mime_type().to_string();
+
+                            let relative_path = new_path.trim_start_matches("/");
+
+                            // Handle empty path by providing a default filename based on content type
+                            let effective_path = if relative_path.is_empty() {
+                                // Generate a filename based on the media type
+                                let extension = match media_type.as_str() {
+                                    "text/plain" => "data",
+                                    "application/json" => "json",
+                                    "application/yaml" => "yaml",
+                                    "text/yaml" => "yaml",
+                                    "application/x-yaml" => "yaml",
+                                    "text/x-yaml" => "yaml",
+                                    "application/xml" => "xml",
+                                    "text/xml" => "xml",
+                                    "text/html" => "html",
+                                    "application/javascript" => "js",
+                                    "text/css" => "css",
+                                    _ => "data",
+                                };
+                                format!("extracted_file_{}.{}", *file_counter, extension)
+                            } else {
+                                relative_path.to_string()
+                            };
+
+                            // Create the output file
+                            let file_path = output_dir.join(&effective_path);
+                            if let Some(parent) = file_path.parent() {
+                                fs::create_dir_all(parent)?;
+                            }
+
+                            fs::write(&file_path, decoded_content)?;
+
+                            // Update the source field to placeholder with relative file path
+                            *val = serde_json::Value::String(format!(
+                                "data:{};base64-placeholder,{}",
+                                media_type, effective_path
+                            ));
+
+                            *file_counter += 1;
+                        }
+                    }
+                } else if found_array_with_sources && key != "path" {
+                    // This might be an array field with sources
+                    if let serde_json::Value::Array(arr) = val {
+                        // Check if this array contains objects with sources
+                        let has_sources = arr.iter().any(|item| {
+                            if let serde_json::Value::Object(obj) = item {
+                                obj.contains_key("source")
+                            } else {
+                                false
+                            }
+                        });
+
+                        if has_sources {
+                            // Process as array of sources
+                            for (index, item) in arr.iter_mut().enumerate() {
+                                process_array_item_sources_with_path_update(
+                                    item,
+                                    &new_path,
+                                    index,
+                                    output_dir,
+                                    file_counter,
+                                )?;
+                            }
+                        } else {
+                            // Recursively process nested structures
+                            find_and_replace_source_with_path_update(
+                                val,
+                                &new_path,
+                                output_dir,
+                                file_counter,
+                            )?;
+                        }
+                    } else {
+                        // Recursively process other nested structures
+                        find_and_replace_source_with_path_update(
+                            val,
+                            &new_path,
+                            output_dir,
+                            file_counter,
+                        )?;
+                    }
+                } else {
+                    // Recursively process nested objects and arrays
+                    find_and_replace_source_with_path_update(
+                        val,
+                        &new_path,
+                        output_dir,
+                        file_counter,
+                    )?;
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for val in arr.iter_mut() {
+                find_and_replace_source_with_path_update(val, path, output_dir, file_counter)?;
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+fn process_array_item_sources_with_path_update(
+    item: &mut serde_json::Value,
+    path: &str,
+    index: usize,
+    output_dir: &Path,
+    file_counter: &mut usize,
+) -> Result<()> {
+    if let serde_json::Value::Object(map) = item {
+        for (key, val) in map.iter_mut() {
+            if key == "source" {
+                if let Some(source_str) = val.as_str() {
+                    if source_str.starts_with("data:") {
+                        let url = data_url::DataUrl::process(source_str)
+                            .map_err(|e| anyhow::anyhow!("Failed to parse data URL: {:?}", e))?;
+                        let (decoded_content, _) = url.decode_to_vec().unwrap();
+                        let media_type = url.mime_type().to_string();
+
+                        let relative_path = path.trim_start_matches("/");
+
+                        // Handle empty path by providing a default filename
+                        let effective_path = if relative_path.is_empty() {
+                            let extension = match media_type.as_str() {
+                                "text/plain" => "data",
+                                "application/json" => "json",
+                                "application/yaml" => "yaml",
+                                "text/yaml" => "yaml",
+                                "application/x-yaml" => "yaml",
+                                "text/x-yaml" => "yaml",
+                                "application/xml" => "xml",
+                                "text/xml" => "xml",
+                                "text/html" => "html",
+                                "application/javascript" => "js",
+                                "text/css" => "css",
+                                _ => "data",
+                            };
+                            format!("extracted_file_{}.{}", *file_counter, extension)
+                        } else {
+                            relative_path.to_string()
+                        };
+
+                        // Create directory and indexed file for array items
+                        let dir_path = output_dir.join(&effective_path);
+                        fs::create_dir_all(&dir_path)?;
+                        let file_path = dir_path.join(index.to_string());
+
+                        fs::write(&file_path, decoded_content)?;
+
+                        // Update the source field to placeholder with array path
+                        let array_file_path = format!("{}/{}", effective_path, index);
+                        *val = serde_json::Value::String(format!(
+                            "data:{};base64-placeholder,{}",
+                            media_type, array_file_path
+                        ));
+
+                        *file_counter += 1;
+                    }
+                }
+            } else {
+                // Recursively process nested structures
+                process_nested_sources_with_path_update(
+                    val,
+                    path,
+                    index,
+                    output_dir,
+                    file_counter,
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn process_nested_sources_with_path_update(
+    value: &mut serde_json::Value,
+    path: &str,
+    index: usize,
+    output_dir: &Path,
+    file_counter: &mut usize,
+) -> Result<()> {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, val) in map.iter_mut() {
+                if key == "source" {
+                    if let Some(source_str) = val.as_str() {
+                        if source_str.starts_with("data:") {
+                            let url = data_url::DataUrl::process(source_str).map_err(|e| {
+                                anyhow::anyhow!("Failed to parse data URL: {:?}", e)
+                            })?;
+                            let (decoded_content, _) = url.decode_to_vec().unwrap();
+                            let media_type = url.mime_type().to_string();
+
+                            let relative_path = path.trim_start_matches("/");
+
+                            let effective_path = if relative_path.is_empty() {
+                                let extension = match media_type.as_str() {
+                                    "text/plain" => "data",
+                                    "application/json" => "json",
+                                    "application/yaml" => "yaml",
+                                    "text/yaml" => "yaml",
+                                    "application/x-yaml" => "yaml",
+                                    "text/x-yaml" => "yaml",
+                                    "application/xml" => "xml",
+                                    "text/xml" => "xml",
+                                    "text/html" => "html",
+                                    "application/javascript" => "js",
+                                    "text/css" => "css",
+                                    _ => "data",
+                                };
+                                format!("extracted_file_{}.{}", *file_counter, extension)
+                            } else {
+                                relative_path.to_string()
+                            };
+
+                            let dir_path = output_dir.join(&effective_path);
+                            fs::create_dir_all(&dir_path)?;
+                            let file_path = dir_path.join(index.to_string());
+
+                            fs::write(&file_path, decoded_content)?;
+
+                            let array_file_path = format!("{}/{}", effective_path, index);
+                            *val = serde_json::Value::String(format!(
+                                "data:{};base64-placeholder,{}",
+                                media_type, array_file_path
+                            ));
+
+                            *file_counter += 1;
+                        }
+                    }
+                } else {
+                    process_nested_sources_with_path_update(
+                        val,
+                        path,
+                        index,
+                        output_dir,
+                        file_counter,
+                    )?;
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for val in arr.iter_mut() {
+                process_nested_sources_with_path_update(
+                    val,
+                    path,
+                    index,
+                    output_dir,
+                    file_counter,
+                )?;
+            }
+        }
+        _ => (),
+    }
+    Ok(())
 }
