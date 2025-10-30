@@ -15,5 +15,18 @@ cmd = "cargo test"
 [tasks.run]
 cmd = "cargo run --"
 
+[tasks.bump-version]
+cmd = "nu scripts/bump-version.nu"
+description = "Bump version in Cargo.toml and pixi.toml (interactive)"
+
+[tasks.release]
+cmd = "nu scripts/release.nu"
+description = "Complete release process: bump version, test, build, commit, tag, and push"
+
+[tasks.release-dry-run]
+cmd = "nu -c 'print \"🔍 Release dry-run checklist:\"; print \"✅ Run tests: cargo test\"; print \"✅ Build release: cargo build --release\"; print \"✅ Check git status: git status\"; print $\"✅ Current branch: (^git branch --show-current | str trim)\"; print \"\"; print \"To perform actual release: pixi run release <version>\"'"
+description = "Check release readiness without making changes"
+
 [dependencies]
 rust = ">=1.75"
+nushell = ">=0.86"

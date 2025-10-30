@@ -1,0 +1,169 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_id: ${{ steps.create_release.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ steps.get_version.outputs.VERSION }}
+          body: |
+            ## What's Changed
+
+            Changes in this release will be updated here.
+
+            ## Installation
+
+            ### Download Binary
+            Download the appropriate binary for your platform from the assets below.
+
+            ### Using Cargo
+            ```bash
+            cargo install fcos-ignition-coder --version ${{ steps.get_version.outputs.VERSION }}
+            ```
+
+            ### Using pixi
+            ```bash
+            git clone https://github.com/${{ github.repository }}
+            cd fcos-ignition-coder
+            git checkout ${{ steps.get_version.outputs.VERSION }}
+            pixi install
+            pixi run build
+            ```
+          draft: false
+          prerelease: ${{ contains(steps.get_version.outputs.VERSION, 'alpha') || contains(steps.get_version.outputs.VERSION, 'beta') || contains(steps.get_version.outputs.VERSION, 'rc') }}
+
+  build:
+    needs: create-release
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: linux-x86_64
+
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            name: macos-x86_64
+
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            name: macos-aarch64
+
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            name: windows-x86_64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target ${{ matrix.target }}
+
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --release --target ${{ matrix.target }}
+
+      - name: Prepare artifact (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ../../../fcos-ignition-coder-${{ matrix.name }}.tar.gz fcos-ignition-coder
+          cd ../../..
+
+      - name: Prepare artifact (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd target/${{ matrix.target }}/release
+          7z a ../../../fcos-ignition-coder-${{ matrix.name }}.zip fcos-ignition-coder.exe
+          cd ../../..
+
+      - name: Generate checksums (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          shasum -a 256 fcos-ignition-coder-${{ matrix.name }}.tar.gz > fcos-ignition-coder-${{ matrix.name }}.tar.gz.sha256
+
+      - name: Generate checksums (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          Get-FileHash fcos-ignition-coder-${{ matrix.name }}.zip -Algorithm SHA256 | Select-Object Hash | Format-Table -HideTableHeaders | Out-String -Stream | Where-Object { $_.Trim() -ne "" } | Out-File -FilePath fcos-ignition-coder-${{ matrix.name }}.zip.sha256 -Encoding ASCII
+
+      - name: Upload Release Asset (Unix)
+        if: matrix.os != 'windows-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./fcos-ignition-coder-${{ matrix.name }}.tar.gz
+          asset_name: fcos-ignition-coder-${{ matrix.name }}.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload Release Asset Checksum (Unix)
+        if: matrix.os != 'windows-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./fcos-ignition-coder-${{ matrix.name }}.tar.gz.sha256
+          asset_name: fcos-ignition-coder-${{ matrix.name }}.tar.gz.sha256
+          asset_content_type: text/plain
+
+      - name: Upload Release Asset (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./fcos-ignition-coder-${{ matrix.name }}.zip
+          asset_name: fcos-ignition-coder-${{ matrix.name }}.zip
+          asset_content_type: application/zip
+
+      - name: Upload Release Asset Checksum (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./fcos-ignition-coder-${{ matrix.name }}.zip.sha256
+          asset_name: fcos-ignition-coder-${{ matrix.name }}.zip.sha256
+          asset_content_type: text/plain
