@@ -1,0 +1,30 @@
+{
+  "ignition": {
+    "version": "3.4.0"
+  },
+  "storage": {
+    "files": [
+      {
+        "path": "/etc/hostname",
+        "mode": 420,
+        "contents": {
+          "source": "data:,my-fedora-coreos-host"
+        }
+      },
+      {
+        "path": "/etc/motd",
+        "mode": 420,
+        "contents": {
+          "source": "data:;base64,V2VsY29tZSB0byBGZWRvcmEgQ29yZU9TIQoKVGhpcyBzeXN0ZW0gaXMgbWFuYWdlZCBieSBJZ25pdGlvbi4KRm9yIG1vcmUgaW5mb3JtYXRpb24sIHZpc2l0OiBodHRwczovL2NvcmVvcy5naXRodWIuaW8vaWduaXRpb24vCg=="
+        }
+      },
+      {
+        "path": "/usr/local/bin/setup.sh",
+        "mode": 493,
+        "contents": {
+          "source": "data:text/plain;base64,IyEvYmluL2Jhc2gKIyBJbml0aWFsIHNldHVwIHNjcmlwdAoKZWNobyAiUnVubmluZyBpbml0aWFsIHNldHVwLi4uIgojIEFkZCB5b3VyIHNldHVwIGNvbW1hbmRzIGhlcmUKZWNobyAiU2V0dXAgY29tcGxldGUhIgo="
+        }
+      }
+    ]
+  }
+}

@@ -27,3 +27,7 @@ target
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+# Example decoded output
+example-decoded/
+example-modified.ign
