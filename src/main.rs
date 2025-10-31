@@ -7,6 +7,17 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 mod tests;
 
+/// Action to take when the target already exists
+#[derive(clap::ValueEnum, Clone, Debug)]
+enum Action {
+    /// Create new target (fail if it already exists) - default
+    New,
+    /// Add to or update existing target (merge/overwrite files)
+    Add,
+    /// Replace entire target (remove existing first)
+    Replace,
+}
+
 #[derive(Parser)]
 #[command(name = "fcos-ignition-coder")]
 #[command(about = "Decode and encode Fedora CoreOS Ignition configuration files")]
@@ -26,9 +37,9 @@ enum Commands {
         /// The directory to place the decoded files in
         target_dir: PathBuf,
 
-        /// Remove target directory if it exists before processing
-        #[arg(long)]
-        replace: bool,
+        /// Action to take with the target directory
+        #[arg(long, default_value = "new")]
+        action: Action,
     },
     /// Encode extracted files back into an Ignition file
     #[command(aliases = ["encode", "a", "prod"])]
@@ -47,9 +58,9 @@ enum Commands {
         #[arg(long)]
         default: bool,
 
-        /// Remove target file if it exists before processing
-        #[arg(long)]
-        replace: bool,
+        /// Action to take with the target file
+        #[arg(long, default_value = "new")]
+        action: Action,
     },
 }
 
@@ -60,25 +71,25 @@ fn main() -> Result<()> {
         Commands::Disassemble {
             ignition_file,
             target_dir,
-            replace,
+            action,
         } => {
-            disassemble_ignition(&ignition_file, &target_dir, replace)?;
+            disassemble_ignition(&ignition_file, &target_dir, action)?;
         }
         Commands::Assemble {
             target_file,
             ignition_dir,
             compact,
             default,
-            replace,
+            action,
         } => {
-            assemble_ignition(&target_file, &ignition_dir, compact, default, replace)?;
+            assemble_ignition(&target_file, &ignition_dir, compact, default, action)?;
         }
     }
 
     Ok(())
 }
 
-fn disassemble_ignition(input_path: &Path, output_dir: &Path, replace: bool) -> Result<()> {
+fn disassemble_ignition(input_path: &Path, output_dir: &Path, action: Action) -> Result<()> {
     // Read the input Ignition file
     let content = fs::read_to_string(input_path)
         .with_context(|| format!("Failed to read input file: {}", input_path.display()))?;
@@ -92,21 +103,32 @@ fn disassemble_ignition(input_path: &Path, output_dir: &Path, replace: bool) -> 
         eprintln!("Warning: {}", warning);
     }
 
-    // Handle target directory
+    // Handle target directory based on action
     if output_dir.exists() {
-        if replace {
-            fs::remove_dir_all(output_dir).with_context(|| {
-                format!(
-                    "Failed to remove existing target directory: {}",
+        match action {
+            Action::New => {
+                anyhow::bail!(
+                    "Target directory already exists: {}. Use --action replace to overwrite or --action add to merge.",
                     output_dir.display()
-                )
-            })?;
-        } else {
-            anyhow::bail!(
-                "Target directory already exists: {}. Use --replace to overwrite.",
-                output_dir.display()
-            );
+                );
+            }
+            Action::Add => {
+                // Directory exists, we'll add/overwrite files within it
+                println!("Adding to existing directory: {}", output_dir.display());
+            }
+            Action::Replace => {
+                fs::remove_dir_all(output_dir).with_context(|| {
+                    format!(
+                        "Failed to remove existing target directory: {}",
+                        output_dir.display()
+                    )
+                })?;
+                println!("Replaced existing directory: {}", output_dir.display());
+            }
         }
+    } else {
+        // Directory doesn't exist, all actions will create it
+        println!("Creating new directory: {}", output_dir.display());
     }
 
     // Create output directory
@@ -332,23 +354,30 @@ fn assemble_ignition(
     ignition_dir: &Path,
     compact: bool,
     default: bool,
-    replace: bool,
+    action: Action,
 ) -> Result<()> {
-    // Handle target file
+    // Handle target file based on action
     if target_file.exists() {
-        if replace {
-            fs::remove_file(target_file).with_context(|| {
-                format!(
-                    "Failed to remove existing target file: {}",
+        match action {
+            Action::New => {
+                anyhow::bail!(
+                    "Target file already exists: {}. Use --action replace or --action add to overwrite.",
                     target_file.display()
-                )
-            })?;
-        } else {
-            anyhow::bail!(
-                "Target file already exists: {}. Use --replace to overwrite.",
-                target_file.display()
-            );
+                );
+            }
+            Action::Add | Action::Replace => {
+                fs::remove_file(target_file).with_context(|| {
+                    format!(
+                        "Failed to remove existing target file: {}",
+                        target_file.display()
+                    )
+                })?;
+                println!("Overwriting existing file: {}", target_file.display());
+            }
         }
+    } else {
+        // File doesn't exist, all actions will create it
+        println!("Creating new file: {}", target_file.display());
     }
 
     // Find the .ign file in the ignition_dir

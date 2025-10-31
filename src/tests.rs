@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{assemble_ignition, disassemble_ignition};
+    use crate::{assemble_ignition, disassemble_ignition, Action};
     use std::fs;
     use tempfile::TempDir;
 
@@ -28,7 +28,7 @@ mod tests {
 }"#;
         fs::write(&input_path, test_ignition).unwrap();
 
-        disassemble_ignition(&input_path, &decoded_dir, false).unwrap();
+        disassemble_ignition(&input_path, &decoded_dir, Action::New).unwrap();
 
         assert!(decoded_dir.join("decoded.ign").exists());
         assert!(decoded_dir.join("etc/test").exists());
@@ -71,7 +71,7 @@ mod tests {
         fs::create_dir_all(file_path.parent().unwrap()).unwrap();
         fs::write(file_path, file_content).unwrap();
 
-        assemble_ignition(&target_file, &ignition_dir, false, true, false).unwrap();
+        assemble_ignition(&target_file, &ignition_dir, false, true, Action::New).unwrap();
 
         assert!(target_file.exists());
 
@@ -104,8 +104,8 @@ mod tests {
 }"#;
         fs::write(&input_path, test_ignition).unwrap();
 
-        disassemble_ignition(&input_path, &decoded_dir, false).unwrap();
-        assemble_ignition(&output_path, &decoded_dir, false, true, false).unwrap();
+        disassemble_ignition(&input_path, &decoded_dir, Action::New).unwrap();
+        assemble_ignition(&output_path, &decoded_dir, false, true, Action::New).unwrap();
 
         let input_json: serde_json::Value = serde_json::from_str(test_ignition).unwrap();
         let output_json: serde_json::Value =
@@ -150,7 +150,7 @@ mod tests {
 }"#;
         fs::write(&input_path, test_ignition).unwrap();
 
-        disassemble_ignition(&input_path, &decoded_dir, false).unwrap();
+        disassemble_ignition(&input_path, &decoded_dir, Action::New).unwrap();
 
         // Check single file was created as a file
         assert!(decoded_dir.join("etc/test-single").exists());
@@ -202,7 +202,7 @@ mod tests {
         fs::write(&input_path, test_ignition).unwrap();
 
         // Disassemble
-        disassemble_ignition(&input_path, &decoded_dir, false).unwrap();
+        disassemble_ignition(&input_path, &decoded_dir, Action::New).unwrap();
 
         // Verify array structure was created
         assert!(decoded_dir.join("etc/motd").is_dir());
@@ -210,7 +210,7 @@ mod tests {
         assert!(decoded_dir.join("etc/motd/1").exists());
 
         // Assemble back
-        assemble_ignition(&output_path, &decoded_dir, false, true, false).unwrap();
+        assemble_ignition(&output_path, &decoded_dir, false, true, Action::New).unwrap();
 
         // Parse both JSON files to compare structure
         let input_json: serde_json::Value = serde_json::from_str(test_ignition).unwrap();
@@ -273,7 +273,7 @@ mod tests {
         fs::write(decoded_dir.join("existing_file"), "old content").unwrap();
 
         // Without replace flag, should fail
-        let result = disassemble_ignition(&input_path, &decoded_dir, false);
+        let result = disassemble_ignition(&input_path, &decoded_dir, Action::New);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -281,7 +281,7 @@ mod tests {
             .contains("Target directory already exists"));
 
         // With replace flag, should succeed
-        disassemble_ignition(&input_path, &decoded_dir, true).unwrap();
+        disassemble_ignition(&input_path, &decoded_dir, Action::Replace).unwrap();
 
         // Verify old content was removed and new content exists
         assert!(!decoded_dir.join("existing_file").exists());
@@ -323,7 +323,7 @@ mod tests {
         fs::write(&target_file, "old ignition content").unwrap();
 
         // Without replace flag, should fail
-        let result = assemble_ignition(&target_file, &ignition_dir, false, true, false);
+        let result = assemble_ignition(&target_file, &ignition_dir, false, true, Action::New);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -331,7 +331,7 @@ mod tests {
             .contains("Target file already exists"));
 
         // With replace flag, should succeed
-        assemble_ignition(&target_file, &ignition_dir, false, true, true).unwrap();
+        assemble_ignition(&target_file, &ignition_dir, false, true, Action::Replace).unwrap();
 
         // Verify new content exists
         assert!(target_file.exists());
